@@ -1694,8 +1694,10 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             if n_response is None:
                 # give up if descrambling failed
                 break
-            fmt['url'] = update_url(
-                parsed_fmt_url, query_update={'n': [n_response]})
+            fmt['url'] = update_url(parsed_fmt_url, query_update={'n': [n_response]})
+            if 'fragments' in fmt:
+                for fragment in fmt['fragments']:
+                    fragment['url'] = update_url(compat_urllib_parse.urlparse(fragment['url']), query_update={'n': [n_response]})
 
     # from yt-dlp, with tweaks
     def _extract_signature_timestamp(self, video_id, player_url, ytcfg=None, fatal=False):
@@ -2047,10 +2049,18 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             if no_video:
                 dct['abr'] = tbr
             if no_audio or no_video:
-                dct['downloader_options'] = {
-                    # Youtube throttles chunks >~10M
-                    'http_chunk_size': 10485760,
-                }
+                CHUNK_SIZE = 10 << 20
+                dct.update({
+                    'request_data': b'x',
+                    'protocol': 'http_dash_segments',
+                    'fragments': [{
+                        'url': update_url_query(dct['url'], {
+                            'range': '{0}-{1}'.format(range_start, min(range_start + CHUNK_SIZE - 1, dct["filesize"]))
+                        })
+                    } for range_start in range(0, dct['filesize'], CHUNK_SIZE)]
+                } if dct['filesize'] else {
+                    'downloader_options': {'http_chunk_size': CHUNK_SIZE}  # No longer useful?
+                })
                 if dct.get('ext'):
                     dct['container'] = dct['ext'] + '_dash'
             formats.append(dct)
